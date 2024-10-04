@@ -1,0 +1,11 @@
+name: ontology-search
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - langchain
+  - langchain-huggingface
+  - langchain-chroma
+  - bs4
+  - langchain-community
+  - python-multipart
