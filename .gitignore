@@ -3,3 +3,4 @@
 *.obo
 *.log
 *.gguf
+/app/
