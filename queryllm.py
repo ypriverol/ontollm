@@ -91,7 +91,7 @@ def get_refined_similarity_answer(vector, query, keyword_weight=0.8) -> str:
     cleaned_query = ' '.join(query_tokens)  # Convert back to string format for similarity search
 
     # Perform vector-based similarity search with preprocessed query
-    vector_docs = vector.similarity_search_with_score(cleaned_query)
+    vector_docs = vector.similarity_search_with_score(query)
 
     if not vector_docs:
         print("No documents found with the given query. {}".format(query))  # Debugging output
@@ -137,7 +137,7 @@ def get_refined_similarity_answer(vector, query, keyword_weight=0.8) -> str:
 
     relevant_doc = ''
 
-    max_token_size = 128
+    max_token_size = 64
     for count, (doc, content, score) in enumerate(combined_docs, 1):
         tokens = tokenizer(content, return_tensors='pt', truncation=False, padding=False, max_length=max_token_size)
         token_length = len(tokens['input_ids'][0])
@@ -155,7 +155,7 @@ def get_refined_similarity_answer(vector, query, keyword_weight=0.8) -> str:
 
 llmMeta = Llama(
     model_path="./mistral-7b-instruct-v0.2.Q5_K_M.gguf",
-    verbose=True,
+    verbose=False,
     n_ctx=1024,  # Set context length to 1024
     n_threads=6,  # Number of CPU threads to use
     n_batch=256,  # Batch size for input processing
@@ -190,38 +190,24 @@ db = vector_by_id()
 for key in terms:
     res = get_refined_similarity_answer(vector=db, query=terms[key])
 
-    messages = [
-        {"role": "system",
-         "content": """You are an ontology lookup service specializing in Mass Spectrometry (MS). 
-         Given a query, return the most relevant ontology accession and term name from MS-related ontologies."""
-        },
-        {"role": "user",
-         "content": f"Given the following text: {res}, provide the corresponding MS ontology accession and name for {terms[key]}."
-                    f"Please only provide Accession, Name, Do not return more text only Accession, Name."
-                    f" For example, LTQ-Orbitrap you should return: MS:1000449, LTQ Orbitrap."
-        }
-    ]
+    messages = f"""<|system|>
+        Pick the MS ontology accession and label from the provided text.</s>
+        <|user|>
+        Given the following text: {res}.Pick the MS ontology accession and label
+        Do not include any other information.
+        <|assistant|>"""
 
     meta_reply = llmMeta(
-        f"[INST] {messages[0]['content']} [INST] {messages[1]['content']} [/INST]",
-        max_tokens=100,
-        stream=True,
-        stop=['[INST]', '[/INST', 'Question:'],
+        messages,
+        max_tokens=50,
+        stream=False,
+        stop=['[INST]', '[/INST', 'Question:','2.'],
         temperature=0,  # Lower temperature for more focused responses
         repeat_penalty=1.2  # Increase repeat penalty to discourage repetition
     )
-    result_text = ""
-    token_count = 0
 
-    # Iterate over generated tokens
-    for chunk in meta_reply:  # Assuming `llmMeta` supports streaming
-        # Extract generated text
-        gen_text = chunk['choices'][0]['text']
-        result_text += gen_text
-        token_count += len(gen_text.split())
-
-    result = {"result": result_text}
-
-    logging.info("{}, {}, {}".format(key, terms[key], result_text))
+    result = meta_reply ['choices'][0]['text']
+    accession = re.findall(r"MS:.*", result)
+    logging.info("{}, {}, {}".format(key, terms[key], accession))
 
 
