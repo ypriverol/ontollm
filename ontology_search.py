@@ -48,7 +48,7 @@ def read_obo_file(ontology_file, ontology_name=None):
     return terms_info
 
 def read_tsv_line_by_line(file_path):
-    px_terms = {}
+    px_terms = []
     count = 0
     with open(file_path, 'r') as file:
         for line in file:
@@ -58,7 +58,7 @@ def read_tsv_line_by_line(file_path):
                 continue
             line_arrays = line.split("\t")
             if len(line_arrays) == 2:
-                px_terms[line_arrays[0].strip()] = line_arrays[1].strip()
+                px_terms.append((line_arrays[0].strip(), line_arrays[1].strip()))
             else:
                 logger.debug("Error reading line: {}".format(line_arrays[0].strip()))
     return px_terms
@@ -108,13 +108,13 @@ output_file = "instrument_files_results.tsv"
 output = open(output_file, 'w')
 output.write("project\tFree text\tAccession\tTerm\n")
 
-for key in terms:
-    accession, term = find_best_match(terms[key], onto_terms)
+for px in terms:
+    accession, term = find_best_match(px[1], onto_terms)
     if accession:
         # logger.info(f"{key}, {terms[key]}, {accession}, {term['label']}")
-        output.write(f"{key}\t{terms[key]}\t{accession}\t{term['label']}\n")
+        output.write(f"{px[0]}\t{px[1]}\t{accession}\t{term['label']}\n")
     else:
-        logger.info(f"{key}, {terms[key]}, No match found, No match found")
+        logger.info(f"{px[0]}, {px[1]}, No match found, No match found")
         # output.write(f"{key}\t{terms[key]}\tNo match found\tNo match found\n")
 
 
