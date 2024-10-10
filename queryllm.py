@@ -85,61 +85,26 @@ def vector_by_id():
         return None
 
 
-def get_refined_similarity_answer(vector, query, keyword_weight=0.8) -> str:
+def preprocess_text(text):
+    return text.lower().replace(" ", "")
+
+def get_refined_similarity_answer(vector, query) -> str:
     query_tokens = clean_and_tokenize(query)
-    # Clean and preprocess the query
-    cleaned_query = ' '.join(query_tokens)  # Convert back to string format for similarity search
 
     # Perform vector-based similarity search with preprocessed query
-    vector_docs = vector.similarity_search_with_score(query)
+    vector_docs = vector.similarity_search_with_score(preprocess_text(query))
 
     if not vector_docs:
         print("No documents found with the given query. {}".format(query))  # Debugging output
         return "No relevant documents found.", ""
 
-    # Identify key terms from the query
-    key_terms = {word for word in query_tokens if len(word) > 2}
-
-    combined_docs = []
-
-    i = 0;
-
-    for doc, vector_score in vector_docs:
-        # Clean and tokenize the document content
-        content = doc.page_content
-        content_tokens = set(content.lower().split())
-        content_tokens = {word for word in content_tokens if word not in ENGLISH_STOP_WORDS}
-
-        # Calculate keyword relevance score
-        common_tokens = query_tokens.intersection(content_tokens)
-        keyword_score = len(common_tokens) / len(query_tokens.union(content_tokens))
-
-        # Boost for exact key term match
-        key_term_matches = key_terms.intersection(content_tokens)
-        if key_term_matches:
-            keyword_score += len(key_term_matches) * 3
-
-        # Penalty for missing key terms
-        if not key_term_matches:
-            vector_score *= 0.1  # Strong penalty for missing key terms
-
-        # Combine scores
-        combined_score = (vector_score * (1 - keyword_weight)) + (keyword_score * keyword_weight)
-        combined_docs.append((doc, content, combined_score))
-        i = i + 1
-
-    # Sort by combined score
-    combined_docs.sort(key=lambda x: x[2], reverse=True)
-
     # Prepare final context within token limit
     context = []
     current_token_count = 0
 
-    relevant_doc = ''
-
     max_token_size = 64
-    for count, (doc, content, score) in enumerate(combined_docs, 1):
-        tokens = tokenizer(content, return_tensors='pt', truncation=False, padding=False, max_length=max_token_size)
+    for doc,vector_score in vector_docs:
+        tokens = tokenizer(doc.page_content, return_tensors='pt', truncation=False, padding=False, max_length=max_token_size)
         token_length = len(tokens['input_ids'][0])
 
         if current_token_count + token_length > max_token_size:
@@ -148,7 +113,7 @@ def get_refined_similarity_answer(vector, query, keyword_weight=0.8) -> str:
             context.append(trimmed_content)
             break
         else:
-            context.append(content)
+            context.append(doc.page_content)
             current_token_count += token_length
     return ' '.join(context)
 
@@ -162,7 +127,7 @@ llmMeta = Llama(
     use_mmap=True,  # Use memory-mapped files for model (recommended)
     use_mlock=False,  # Disable mlock to avoid locking memory
     # embedding=True,  # Enable if you want to use embedding generation
-    n_gpu_layers=0,  # Set to 0 since you are running on CPU
+    n_gpu_layers=12,  # Set to 0 since you are running on CPU
     seed=1,  # Set seed for reproducibility (-1 for random)
     logits_all=False,  # Whether to return logits for all tokens
     n_ubatch=128,
@@ -189,23 +154,24 @@ logger.debug("All the terms has been read, total number {}".format(len(terms)))
 db = vector_by_id()
 for key in terms:
     res = get_refined_similarity_answer(vector=db, query=terms[key])
+    messages = f"""<|im_start|>system
+    Return the most relevant and exact MS ontology accession and unProcessedlabel from the provided text.
+    <|im_end|>
+    <|im_start|>user
+    Given the following text: {res}. return only **one** MS ontology accession and unProcessedlabel relevant to {terms[key]}.
+    Do not include explanation or reasons, eg:  return **only** "MS:1001542, amaZon ETD"
+    <|im_end|>
+"""
 
-    messages = f"""<|system|>
-        Pick the MS ontology accession and label from the provided text.</s>
-        <|user|>
-        Given the following text: {res}.Pick the MS ontology accession and label
-        Do not include any other information.
-        <|assistant|>"""
 
     meta_reply = llmMeta(
         messages,
-        max_tokens=50,
+        max_tokens=150,
         stream=False,
-        stop=['[INST]', '[/INST', 'Question:','2.'],
+        stop=['[INST]', '[/INST', 'Question:','</user>','</s>'],
         temperature=0,  # Lower temperature for more focused responses
         repeat_penalty=1.2  # Increase repeat penalty to discourage repetition
     )
-
     result = meta_reply ['choices'][0]['text']
     accession = re.findall(r"MS:.*", result)
     logging.info("{}, {}, {}".format(key, terms[key], accession))

@@ -20,6 +20,9 @@ def read_obo_file(ontology_file, ontology_name=None):
         terms = content.split("[Term]")[1:]  # Skip the header and split by [Term]
         return terms
 
+    def preprocess_text(text):
+        return text.lower().replace(" ", "")
+
     def get_ontology_name(content):
         lines = content.split("\n")
         for line in lines:
@@ -35,7 +38,8 @@ def read_obo_file(ontology_file, ontology_name=None):
                 term_info["accession"] = line.split("id:")[1].strip()
                 term_info["ontology"] = ontology_name
             elif line.startswith("name:"):
-                term_info["label"] = line.split("name:")[1].strip()
+                term_info["label"] = preprocess_text(line.split("name:")[1].strip())
+                term_info["unProcessedlabel"] = line.split("name:")[1].strip()
             elif line.startswith("def:"):
                 term_info["description"] = line.split("def:")[1].strip()
         return term_info
@@ -54,11 +58,12 @@ logger.info("All the terms has been read, total number {}".format(len(terms)))
 
 # Create a vector datadase for mixtral LLM with the terms
 docs = []
+
 for term in terms:
     description = ""
     if "description" in term:
         description = " " + term["description"]
-    content = "accession: {}, label: {}, description: {}".format(term["accession"], term["label"],description)
+    content = "accession: {}, label: {}, unProcessedlabel: {}, description: {}".format(term["accession"], term["label"], term["unProcessedlabel"],description)
     content = content.replace("\"", "")
     new_doc = Document(
         page_content=content,
